@@ -1,0 +1,95 @@
+{{define "function"}}
+{{- $f := .}}
+
+func {{.TestName}}(t *testing.T) {
+	{{- with .Receiver}}
+		{{- if .IsStruct}}
+			{{- if .Fields}}
+				type fields struct {
+				{{- range .Fields}}
+					{{Field .}} {{.Type}}
+				{{- end}}
+				}
+			{{- end}}
+		{{- end}}
+	{{- end}}
+	{{- if .TestParameters}}
+	type args struct {
+		{{- range .TestParameters}}
+				{{Param .}} {{.Type}}
+		{{- end}}
+	}
+	{{- end}}
+    type state struct {
+		{{- with .Receiver}}
+			{{- if and .IsStruct .Fields}}
+				fields
+			{{- else}}
+				{{Receiver .}} {{.Type}}
+			{{- end}}
+		{{- end}}
+		{{- if .TestParameters}}
+			args
+		{{- end}}
+    }
+    type expected struct {
+		{{- range .TestResults}}
+			result {{.Type}}
+		{{- end}}
+		{{- if .ReturnsError}}
+			err error
+		{{- end}}
+    }
+	testCases := []struct {
+		name string
+        state state
+        expected expected
+	}{
+		// TODO: Add test cases.
+	}
+
+	for {{if (or .Subtests (not .IsNaked))}} _, tc := {{end}} range testCases {
+        {{- if .Subtests }}t.Run(tc.name, func(t *testing.T) { {{- end -}}
+            assert := assertions.New(t)
+            ctrl := gomock.NewController(t)
+            defer ctrl.Finish()
+            defer monkey.UnpatchAll()
+
+			{{with .Receiver}}
+				{{- if .IsStruct}}
+					{{Receiver .}} := {{if .Type.IsStar}}&{{end}}{{.Type.Value}}{
+					{{- range .Fields}}
+						{{.Name}}: tc.state.{{Field .}},
+					{{- end}}
+					}
+				{{- end}}
+			{{- end}}
+			{{- range .Parameters}}
+				{{- if .IsWriter}}
+					{{Param .}} := &bytes.Buffer{}
+				{{- end}}
+			{{- end}}
+
+            {{if .OnlyReturnsError}}
+                err := {{template "call" $f}}
+            {{- else}}
+                {{template "results" $f}} {{template "call" $f}}
+            {{- end}}
+
+			{{range .TestResults}}
+				{{- if .IsWriter}}
+                    assert.So({{Param .}}.String(), should.Equal, tc.expected.result)
+				{{- else if .IsBasicType}}
+					assert.So(result, should.Equal, tc.expected.result)
+				{{- else}}
+					assert.So(result, should.Resemble, tc.expected.result)
+				{{- end}}
+			{{- end}}
+			{{- if .ReturnsError}}
+                assert.So(err, test.ShouldEqualError, tc.expected.err)
+			{{- end}}
+		{{- if .Subtests }} }) {{- end -}}
+	}
+}
+
+{{end}}
